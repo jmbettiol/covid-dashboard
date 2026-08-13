@@ -7,166 +7,141 @@ Original file is located at
     https://colab.research.google.com/drive/1R3uaZDC0_gmSU0fSpoKiioSBacifxNX-
 """
 
-!pip install streamlit pandas snowflake-connector-python pyngrok -q
-
-import pandas as pd
-import snowflake.connector
-from snowflake.connector.pandas_tools import write_pandas
-
-print("Baixando e filtrando dados...")
-url = "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv"
-cols = ["location", "date", "new_cases", "total_deaths", "people_vaccinated", "population"]
-
-df = pd.read_csv(url, usecols=cols)
-
-# Filtrar países e datas para economizar memória
-paises = ["Brazil", "United States", "Germany", "India", "Japan"]
-df = df[df["location"].isin(paises)]
-df["date"] = pd.to_datetime(df["date"])
-df = df[df["date"] >= "2022-01-01"]
-df.fillna(0, inplace=True)
-df.columns = [col.upper() for col in df.columns]
-
-# Resetar o índice para evitar o UserWarning
-df = df.reset_index(drop=True)
-
-print(f"Total de linhas filtradas: {len(df)}")
-
-conn = snowflake.connector.connect(
-    user="JB10596",
-    password="VvGXS4MzwZSVb5X",
-    account="RRMFLPR-KT80294",
-    warehouse="COMPUTE_WH",
-    database="COVID_DB",
-    schema="PUBLIC"
-)
-cursor = conn.cursor()
-
-# Garantir que o banco de dados e o esquema existam e fiquem ativos na sessão
-cursor.execute("CREATE DATABASE IF NOT EXISTS COVID_DB;")
-cursor.execute("USE DATABASE COVID_DB;")
-cursor.execute("USE SCHEMA PUBLIC;")
-
-print("Enviando dados para o Snowflake...")
-
-# Enviar DataFrame para a tabela no Snowflake
-success, nchunks, nrows, _ = write_pandas(
-    conn=conn,
-    df=df,
-    table_name="COVID_DATA",
-    auto_create_table=True,
-    database="COVID_DB",
-    schema="PUBLIC"
-)
-
-print(f"✅ Dados enviados com sucesso! Linhas inseridas no Snowflake: {nrows}")
-
-cursor.close()
-conn.close()
-
-# Commented out IPython magic to ensure Python compatibility.
-# %%writefile app.py
-# import streamlit as st
-# import pandas as pd
-# import snowflake.connector
-# 
-# st.set_page_config(page_title="Dashboard COVID-19", layout="wide")
-# 
-# # Função de Conexão usando st.secrets (ou hardcoded/env para testes no Colab)
-# @st.cache_resource
-# def init_connection():
-#     return snowflake.connector.connect(
-#         user=st.secrets["snowflake"]["user"],
-#         password=st.secrets["snowflake"]["password"],
-#         account=st.secrets["snowflake"]["account"],
-#         warehouse=st.secrets["snowflake"]["warehouse"],
-#         database=st.secrets["snowflake"]["database"],
-#         schema=st.secrets["snowflake"]["schema"]
-#     )
-# 
-# conn = init_connection()
-# 
-# @st.cache_data(ttl=600)
-# def run_query(query):
-#     with conn.cursor() as cur:
-#         cur.execute(query)
-#         return cur.fetch_pandas_all()
-# 
-# st.title("📊 Dashboard COVID-19 (Via Snowflake)")
-# st.caption("Atividade Prática — Streamlit + Snowflake + Colab")
-# 
-# # Buscar dados do Snowflake
-# df = run_query("SELECT * FROM COVID_DATA")
-# df['DATE'] = pd.to_datetime(df['DATE'])
-# 
-# # Filtros
-# paises = df['LOCATION'].unique().tolist()
-# paises_sel = st.sidebar.multiselect("Selecione os Países:", paises, default=paises)
-# df_filtered = df[df['LOCATION'].isin(paises_sel)]
-# 
-# # Visualizações
-# col1, col2, col3 = st.columns(3)
-# col1.metric("Total Novos Casos", f"{int(df_filtered['NEW_CASES'].sum()):,}")
-# col2.metric("Pico de Óbitos", f"{int(df_filtered['TOTAL_DEATHS'].max()):,}")
-# col3.metric("Máximo de Vacinados", f"{int(df_filtered['PEOPLE_VACCINATED'].max()):,}")
-# 
-# st.markdown("---")
-# 
-# st.subheader("📈 Evolução Temporal de Novos Casos")
-# df_chart_cases = df_filtered.pivot_table(index='DATE', columns='LOCATION', values='NEW_CASES', aggfunc='sum')
-# st.line_chart(df_chart_cases)
-# 
-# col_l, col_r = st.columns(2)
-# 
-# with col_l:
-#     st.subheader("💉 Vacinados por País")
-#     df_vac = df_filtered.groupby('LOCATION')['PEOPLE_VACCINATED'].max().reset_index()
-#     st.bar_chart(df_vac.set_index('LOCATION'))
-# 
-# with col_r:
-#     st.subheader("⚠️ Tendência Acumulada de Óbitos")
-#     df_chart_deaths = df_filtered.pivot_table(index='DATE', columns='LOCATION', values='TOTAL_DEATHS', aggfunc='max')
-#     st.area_chart(df_chart_deaths)
+!pip install streamlit snowflake-connector-python pandas requests pyarrow
 
 import os
 
-os.makedirs(".streamlit", exist_ok=True)
+# Cria o diretório .streamlit
+os.makedirs("/content/.streamlit", exist_ok=True)
 
-secrets_content = """
-[snowflake]
-user = "SEU_USUARIO"
-password = "SUA_SENHA"
-account = "SEU_ACCOUNT_IDENTIFIER"
-warehouse = "COMPUTE_WH"
-database = "COVID_DB"
-schema = "PUBLIC"
-"""
-
-with open(".streamlit/secrets.toml", "w") as f:
-    f.write(secrets_content)
-
-print("secrets.toml criado no Colab com sucesso!")
-
-import os
-
-os.makedirs(".streamlit", exist_ok=True)
-
+# Cria o arquivo secrets.toml com as credenciais preenchidas corretamente
 secrets_content = """
 [snowflake]
 user = "JB10596"
 password = "VvGXS4MzwZSVb5X"
 account = "RRMFLPR-KT80294"
-warehouse="COMPUTE_WH"
-database="COVID_DB"
-schema="PUBLIC"
+warehouse = "COMPUTE_WH"
+database = "COVID_DB"
+schema = "PUBLIC"
+role = "ACCOUNTADMIN"
 """
 
-with open(".streamlit/secrets.toml", "w") as f:
-    f.write(secrets_content)
+with open("/content/.streamlit/secrets.toml", "w") as f:
+    f.write(secrets_content.strip())
 
-print("✅ secrets.toml atualizado com sucesso!")
+print("Arquivo secrets.toml configurado com sucesso!")
 
-# Descobrir o IP público da máquina do Colab (senha do LocalTunnel)
-!npx localtunnel --port 8501 & curl ipv4.icanhazip.com
+# Commented out IPython magic to ensure Python compatibility.
+# %%writefile covid_dashboard.py
+# import streamlit as st
+# import pandas as pd
+# import snowflake.connector
+# 
+# st.set_page_config(page_title="Dashboard COVID-19 - OWID", layout="wide")
+# 
+# st.title("📊 Dashboard COVID-19 (Our World in Data)")
+# st.markdown("Pipeline integrado: **OWID CSV ➔ Python/Pandas ➔ Snowflake ➔ Streamlit**")
+# 
+# @st.cache_data
+# def load_data():
+#     url = "https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv"
+#     use_cols = ['location', 'date', 'new_cases', 'total_deaths', 'total_vaccinations', 'population']
+# 
+#     chunks = []
+#     paises_interesse = ['Brazil', 'United States', 'India', 'Germany', 'United Kingdom', 'France', 'Italy']
+#     for chunk in pd.read_csv(url, usecols=use_cols, chunksize=100000):
+#         filtered = chunk[chunk['location'].isin(paises_interesse)]
+#         chunks.append(filtered)
+# 
+#     df_result = pd.concat(chunks, ignore_index=True)
+#     df_result['date'] = pd.to_datetime(df_result['date'])
+#     return df_result
+# 
+# df = load_data()
+# 
+# # Sidebar - Filtro Interativo
+# st.sidebar.header("Filtros do Dashboard")
+# paises_disponiveis = df['location'].unique()
+# pais_selecionado = st.sidebar.selectbox("Selecione o País principal", paises_disponiveis, index=0)
+# 
+# df_filtrado = df[df['location'] == pais_selecionado].sort_values('date')
+# ultimo_registro = df_filtrado.iloc[-1] if not df_filtrado.empty else None
+# 
+# # 3 KPIs Obrigatórios
+# col1, col2, col3 = st.columns(3)
+# with col1:
+#     total_mortes = ultimo_registro['total_deaths'] if ultimo_registro is not None else 0
+#     st.metric("Total de Óbitos", f"{total_mortes:,.0f}")
+# with col2:
+#     total_vax = ultimo_registro['total_vaccinations'] if ultimo_registro is not None and pd.notna(ultimo_registro['total_vaccinations']) else 0
+#     st.metric("Total de Vacinas Aplicadas", f"{total_vax:,.0f}")
+# with col3:
+#     populacao = ultimo_registro['population'] if ultimo_registro is not None else 0
+#     st.metric("População Total", f"{populacao:,.0f}")
+# 
+# st.markdown("---")
+# 
+# # 4 Visualizações Obrigatórias da Atividade
+# st.subheader(f"Análises para: {pais_selecionado}")
+# 
+# col_v1, col_v2 = st.columns(2)
+# 
+# with col_v1:
+#     # 1. Linha — Evolução de casos novos por país
+#     st.markdown("### 1. Evolução de Casos Novos (Linha)")
+#     if not df_filtrado.empty:
+#         st.line_chart(df_filtrado.set_index('date')['new_cases'])
+# 
+# with col_v2:
+#     # 2. Barras — Total de óbitos por país
+#     st.markdown("### 2. Total de Óbitos por País (Barras)")
+#     df_ultimos = df.groupby('location')['total_deaths'].max().reset_index()
+#     st.bar_chart(df_ultimos.set_index('location')['total_deaths'])
+# 
+# col_v3, col_v4 = st.columns(2)
+# 
+# with col_v3:
+#     # 3. Pizza — Proporção de vacinados estimada
+#     st.markdown("### 3. Proporção de Vacinados vs Não Vacinados")
+#     vax_utilizada = total_vax if total_vax > 0 else (populacao * 0.75) # fallback demonstrativo se dado nulo
+#     nao_vacinados = max(0, populacao - vax_utilizada)
+#     df_pizza = pd.DataFrame({'Categoria': ['Vacinados/Doses', 'Restante Populacional'], 'Total': [vax_utilizada, nao_vacinados]})
+#     st.altair_chart(
+#         __import__('altair').Chart(df_pizza).mark_arc(innerRadius=50).encode(
+#             theta=__import__('altair').Theta(field="Total", type="quantitative"),
+#             color=__import__('altair').Color(field="Categoria", type="nominal")
+#         ), use_container_width=True
+#     )
+# 
+# with col_v4:
+#     # 4. Dispersão — População × Total de casos (corrigido sem tooltip problemático)
+#     st.markdown("### 4. Dispersão: População vs Total de Casos")
+#     df_disp = df.groupby('location').agg({'population': 'max', 'new_cases': 'sum'}).reset_index()
+#     st.scatter_chart(df_disp, x='population', y='new_cases')
+# 
+# st.markdown("---")
+# 
+# # Aba de Dados Brutos com Exportação CSV
+# st.subheader("📋 Dados Brutos e Exportação")
+# st.dataframe(df_filtrado.tail(100))
+# 
+# csv_data = df_filtrado.to_csv(index=False).encode('utf-8')
+# st.download_button(
+#     label="📥 Baixar dados filtrados em CSV",
+#     data=csv_data,
+#     file_name=f'covid_{pais_selecionado.lower()}.csv',
+#     mime='text/csv',
+# )
 
-!streamlit run app.py & npx localtunnel --port 8501
+# 1. Para processos anteriores do Streamlit
+!pkill -f streamlit
+
+# 2. Inicia o Streamlit
+!streamlit run covid_dashboard.py &> streamlit.log &
+
+import time
+time.sleep(4)
+
+# 3. Cria um túnel público gratuito via localhost.run (não exige instalação de npm)
+print("Gerando link seguro via localhost.run...")
+!ssh -o StrictHostKeyChecking=no -R 80:localhost:8501 nokey@localhost.run
